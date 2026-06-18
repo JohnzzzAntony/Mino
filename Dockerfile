@@ -12,9 +12,14 @@ RUN bunx prisma generate
 
 # Copy all source and build Next.js
 COPY . .
+
+# Step 1: Build Next.js with standalone output
 RUN bun run next build
-# ^ This runs: next build && cp -r .next/static .next/standalone/.next/ && cp -r public .next/standalone/
-# The cp commands are already in the package.json build script, so standalone has everything
+
+# Step 2: Copy static assets into the standalone directory
+# (Next.js standalone output does NOT include these by default)
+RUN cp -r .next/static .next/standalone/.next/static
+RUN cp -r public .next/standalone/public
 
 # ---- Production Stage ----
 FROM node:22-alpine AS runner
