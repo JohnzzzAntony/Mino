@@ -1,0 +1,235 @@
+// MINO SUPPLIERS — Prisma schema (PostgreSQL / Supabase)
+// JSON fields are stored as String (Text) for cross-DB compatibility.
+// Prices stored as Float.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model Company {
+  id                 String   @id @default(cuid())
+  name               String
+  status             String   @default("approved") // pending | approved | suspended
+  pricingTierId      String?
+  pricingTier        PricingTier? @relation(fields: [pricingTierId], references: [id])
+  netTermsDays       Int      @default(30)
+  approvalThreshold  Float    @default(500)
+  businessType       String?  // hotel | restaurant | janitorial | other
+  monthlyVolume      String?  // small | medium | large
+  createdAt          DateTime @default(now())
+
+  users             User[]
+  addresses         Address[]
+  orders            Order[]
+  invoices          Invoice[]
+  priceOverrides    ProductPriceOverride[]
+  orderGuides       OrderGuide[]
+}
+
+model User {
+  id           String   @id @default(cuid())
+  email        String   @unique
+  name         String
+  password     String   @default("demo1234") // mock auth only
+  role         String   @default("purchaser") // purchaser | approver | owner | admin
+  companyId    String?
+  company      Company? @relation(fields: [companyId], references: [id])
+  createdAt    DateTime @default(now())
+
+  ordersPlaced            Order[]
+  approvalsRequested      ApprovalRequest[] @relation("ApprovalRequestedBy")
+  approvalsResolved       ApprovalRequest[] @relation("ApprovalResolvedBy")
+  orderGuides             OrderGuide[]
+}
+
+model Address {
+  id         String  @id @default(cuid())
+  companyId  String
+  company    Company @relation(fields: [companyId], references: [id])
+  label      String
+  line1      String
+  line2      String?
+  city       String
+  state      String
+  zip        String
+  type       String  // billing | shipping
+}
+
+model PricingTier {
+  id              String @id @default(cuid())
+  name            String
+  discountPercent Float  @default(0)
+  companies       Company[]
+}
+
+model Category {
+  id        String  @id @default(cuid())
+  name      String
+  slug      String  @unique
+  parentId  String?
+  icon      String?
+  blurb     String?
+
+  products  Product[]
+}
+
+model Product {
+  id                   String   @id @default(cuid())
+  sku                  String   @unique
+  name                 String
+  slug                 String   @unique
+  categoryId           String
+  category             Category @relation(fields: [categoryId], references: [id])
+  description          String
+  specs                String   // JSON: { ply, sheetSize, sheetsPerRoll, rollsPerCase, dimensions }
+  certifications       String   // JSON array: ["Green Seal","FSC"]
+  application          String   // JSON array: ["household","commercial","hotel"]
+  unit                 String   // case | roll | each
+  casePackSize         Int      @default(1)
+  basePrice            Float
+  images               String   // JSON array of URLs
+  sustainabilityMetrics String  // JSON: { recycledContent, treesSavedPerCase, plasticSavedLbs }
+  sdsUrl               String?
+  techSheetUrl         String?
+  status               String   @default("active") // active | discontinued
+  bestSeller           Boolean  @default(false)
+  rating               Float    @default(4.5)
+  createdAt            DateTime @default(now())
+
+  priceOverrides ProductPriceOverride[]
+  orderItems     OrderItem[]
+}
+
+model ProductPriceOverride {
+  id         String  @id @default(cuid())
+  companyId  String
+  company    Company @relation(fields: [companyId], references: [id])
+  productId  String
+  product    Product @relation(fields: [productId], references: [id])
+  price      Float
+
+  @@unique([companyId, productId])
+}
+
+model OrderGuide {
+  id         String  @id @default(cuid())
+  companyId  String
+  company    Company @relation(fields: [companyId], references: [id])
+  userId     String
+  user       User    @relation(fields: [userId], references: [id])
+  name       String
+  items      String  // JSON: [{ productId, quantity }]
+  createdAt  DateTime @default(now())
+}
+
+model Order {
+  id                  String   @id @default(cuid())
+  companyId           String
+  company             Company  @relation(fields: [companyId], references: [id])
+  userId              String
+  user                User     @relation(fields: [userId], references: [id])
+  poNumber            String?
+  status              String   @default("draft") // draft | pending_approval | approved | submitted | processing | shipped | delivered | invoiced
+  deliveryDate        DateTime?
+  shippingAddressId   String?
+  shippingAddressJson String?  // snapshot of address at order time
+  subtotal            Float    @default(0)
+  total               Float    @default(0)
+  sustainabilitySummary String? // JSON
+  carrier             String?
+  trackingNumber      String?
+  notes               String?
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
+
+  items         OrderItem[]
+  approval      ApprovalRequest?
+  invoice       Invoice?
+}
+
+model OrderItem {
+  id         String  @id @default(cuid())
+  orderId    String
+  order      Order   @relation(fields: [orderId], references: [id])
+  productId  String
+  product    Product @relation(fields: [productId], references: [id])
+  productName String
+  sku        String
+  quantity   Int
+  unitPrice  Float
+}
+
+model ApprovalRequest {
+  id              String   @id @default(cuid())
+  orderId         String   @unique
+  order           Order    @relation(fields: [orderId], references: [id])
+  requestedBy     String
+  requestedByUser User     @relation("ApprovalRequestedBy", fields: [requestedBy], references: [id])
+  approverId      String?
+  approverUser    User?    @relation("ApprovalResolvedBy", fields: [approverId], references: [id])
+  status          String   @default("pending") // pending | approved | rejected
+  notes           String?
+  createdAt       DateTime @default(now())
+  resolvedAt      DateTime?
+}
+
+model Invoice {
+  id            String  @id @default(cuid())
+  companyId     String
+  company       Company @relation(fields: [companyId], references: [id])
+  orderId       String  @unique
+  order         Order   @relation(fields: [orderId], references: [id])
+  invoiceNumber String  @unique
+  amount        Float
+  dueDate       DateTime
+  status        String  @default("open") // open | paid | overdue
+  pdfUrl        String?
+  createdAt     DateTime @default(now())
+  paidAt        DateTime?
+}
+
+model WholesaleLead {
+  id           String  @id @default(cuid())
+  companyName  String
+  contactName  String
+  email        String
+  phone        String?
+  businessType String?
+  monthlyVolume String?
+  message      String?
+  status       String  @default("new") // new | contacted | approved | rejected
+  createdAt    DateTime @default(now())
+}
+
+model BlogPost {
+  id          String   @id @default(cuid())
+  title       String
+  slug        String   @unique
+  excerpt     String
+  content     String
+  author      String
+  tags        String   // JSON array
+  coverImage  String?
+  publishedAt DateTime?
+  createdAt   DateTime @default(now())
+}
+
+model NewsletterSignup {
+  id    String @id @default(cuid())
+  email String @unique
+  createdAt DateTime @default(now())
+}
+
+model ContactMessage {
+  id      String @id @default(cuid())
+  name    String
+  email   String
+  subject String
+  message String
+  createdAt DateTime @default(now())
+}
